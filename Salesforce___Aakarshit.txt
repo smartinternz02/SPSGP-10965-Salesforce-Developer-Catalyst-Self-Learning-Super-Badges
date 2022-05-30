@@ -1,0 +1,1185 @@
+Apex Basic and Database--
+I) Get Started with Apex -- Create an Apex class with a method that returns a list of strings
+public class StringArrayTest {
+    public static List<String> generateStringArray(Integer length) {
+        List<String> returarray = new List<String>();
+        for(Integer cnt = 0; cnt < length; cnt++){
+            List<String> par = new List<String>{ String.valueOf(cnt) };
+            String elementStr = String.format('Test {0}', par);
+            returarray.add(elementStr);
+            System.debug(elementStr);
+        }
+        return returarray;
+    }
+}
+
+II) Manipulate Records with DML -- Create a method for inserting accounts.
+public class AccountHandler {
+    public static Account insertNewAccount(String s) {
+        Account acct = new Account(Name = s);
+    try {
+        insert acct;
+        ID acctID = acct.ID;
+        System.debug('new record ID is: ' + acctID);
+        return acct;
+    } catch (DmlException e) {
+        System.debug('A DML exception has occurred: ' + e.getMessage());
+        return null;
+    } 	
+}
+}
+
+III) Write SOQL Queries - 1 -- Create an Apex class that returns contacts based on incoming parameters.
+public class ContactSearch {
+    public static Contact[] searchForContacts(String lastName, String postCode){
+        Contact[] contacts = [SELECT Contact.ID,Contact.Name FROM Contact 
+                 WHERE LastName = :lastName AND MailingPostalCode= :postCode];
+        return contacts;
+    }
+}
+
+III) Write SOQL Queries - 2 -- Create an Apex class that returns both contacts and leads based on a parameter.
+Step-1) First add the contacts whith last name as Smith in Salesforce Organization.
+Step-2) Create the class and write the below the code.
+public class ContactAndLeadSearch {
+    public static List<List<SObject>> searchContactsAndLeads(String lastName){
+        List<List<SObject>> searchList = [FIND :lastName IN ALL FIELDS 
+                                      RETURNING Lead(Name), Contact(FirstName,LastName)];
+        Lead[] searchLead = (Lead[])searchList[0];
+		Contact[] searchContacts = (Contact[])searchList[1];
+        System.debug('Found the following leads.');
+        for (Lead a : searchLead) {
+            System.debug(a.Name);
+        }
+        System.debug('Found the following contacts.');
+        for (Contact c : searchContacts) {
+            System.debug(c.LastName + ', ' + c.FirstName);
+        }
+        return searchList;
+    }
+}
+
+Appex-- Triggers
+Code--1
+trigger AccountAddressTrigger on Account (before insert, before update) {
+    for (Account account : trigger.new){
+        if(account.Match_Billing_Address__c==true){
+            account.ShippingPostalCode=account.BillingPostalCode;
+        }
+    }
+}
+Code--2
+trigger ClosedOpportunityTrigger on Opportunity (after insert, after update) {
+    List<Task> taskList=new List<Task>();
+    for(Opportunity opp : Trigger.New){
+        if(opp.StageName == 'Closed Won'){
+            taskList.add(new Task(Subject='Follow Up Test Task',WhatId=opp.Id));
+        }     
+    }
+    if(taskList.size()>0){
+        insert taskList;
+    }
+}
+Apex Class
+Code1.1--
+public class VerifyDate {
+	
+	//method to handle potential checks against two dates
+	public static Date CheckDates(Date date1, Date date2) {
+		//if date2 is within the next 30 days of date1, use date2.  Otherwise use the end of the month
+		if(DateWithin30Days(date1,date2)) {
+			return date2;
+		} else {
+			return SetEndOfMonthDate(date1);
+		}
+	}
+	
+	//method to check if date2 is within the next 30 days of date1
+	private static Boolean DateWithin30Days(Date date1, Date date2) {
+		//check for date2 being in the past
+        	if( date2 < date1) { return false; }
+        
+        	//check that date2 is within (>=) 30 days of date1
+        	Date date30Days = date1.addDays(30); //create a date 30 days away from date1
+		if( date2 >= date30Days ) { return false; }
+		else { return true; }
+	}
+
+	//method to return the end of the month of a given date
+	private static Date SetEndOfMonthDate(Date date1) {
+		Integer totalDays = Date.daysInMonth(date1.year(), date1.month());
+		Date lastDay = Date.newInstance(date1.year(), date1.month(), totalDays);
+		return lastDay;
+	}
+
+}
+Code1.2--
+@isTest
+public class TestVerifyDate {
+    @isTest static void test1(){
+        Date d = VerifyDate.CheckDates(Date.parse('01/01/2021'), Date.parse('01/03/2021'));
+        System.assertEquals(Date.parse('01/03/2021'),d);
+    }
+    @isTest static void test2(){
+        Date d = VerifyDate.CheckDates(Date.parse('01/01/2021'), Date.parse('03/03/2021'));
+        System.assertEquals(Date.parse('01/31/2021'),d);
+    }
+}
+Code2.1--
+trigger RestrictContactByName on Contact (before insert, before update) {
+    //check contacts prior to insert or update for invalid data
+	For (Contact c : Trigger.New) {
+		if(c.LastName == 'INVALIDNAME') {	//invalidname is invalid
+			c.AddError('The Last Name "'+c.LastName+'" is not allowed for DML');
+		}
+	}
+}
+Code2.2--
+@isTest
+public class TestRestrictContactByName {
+    @isTest
+    public static void testContact(){
+        Contact ct = new Contact();
+        ct.LastName = 'INVALIDNAME';
+        Database.SaveResult res = Database.insert(ct, false);
+        System.assertEquals('The Last Name "INVALIDNAME" is not allowed for DML', res.getErrors()[0].getMessage());        
+    }
+
+}
+Code3--
+public class RandomContactFactory {
+    public static List<Contact> generateRandomContacts(Integer num,String lastName){
+     	List<Contact> contactList=new List<Contact>(); 
+        for(Integer i=1;i<=num;i++){
+            Contact ct=new Contact(FirstName='Test'+i,LastName=lastName);
+            contactList.add(ct);
+        }
+        return contactList;
+    }
+}
+
+Apex Rollout Challenge--
+Code1.1--
+public class AnimalLocator {
+      public static String getAnimalNameById(Integer id)
+   {
+        Http http = new Http();
+        HttpRequest request = new HttpRequest();
+        request.setEndpoint('https://th-apex-http-callout.herokuapp.com/animals/'+id);
+        request.setMethod('GET');
+        HttpResponse response = http.send(request);
+          String strResp = '';
+           system.debug('******response '+response.getStatusCode());
+           system.debug('******response '+response.getBody());
+        // If the request is successful, parse the JSON response.
+        if (response.getStatusCode() == 200) 
+        {
+            // Deserializes the JSON string into collections of primitive data types.
+           Map<String, Object> results = (Map<String, Object>) JSON.deserializeUntyped(response.getBody());
+            // Cast the values in the 'animals' key as a list
+           Map<string,object> animals = (map<string,object>) results.get('animal');
+            System.debug('Received the following animals:' + animals );
+            strResp = string.valueof(animals.get('name'));
+            System.debug('strResp >>>>>>' + strResp );
+        }
+        return strResp ;
+   }
+}
+
+Code1.2--
+@isTest
+private class AnimalLocatorTest{
+    @isTest static  void AnimalLocatorMock1() {
+        Test.SetMock(HttpCallOutMock.class, new AnimalLocatorMock());
+        string result=AnimalLocator.getAnimalNameById(3);
+        string expectedResult='chicken';
+        System.assertEquals(result, expectedResult);
+    }
+}
+
+Code1.3--
+@isTest
+global class AnimalLocatorMock implements HttpCalloutMock {
+    global HTTPResponse respond(HTTPRequest request) {
+         HttpResponse response = new HttpResponse();
+        response.setHeader('Content-Type', 'application/json');
+        response.setBody('{"animal":{"id":1,"name":"chicken","eats":"chicken food","says":"cluck cluck"}}');
+        response.setStatusCode(200);
+        return response;
+    }
+}
+
+Apex Soap Callout--
+Code2.1 -- After importing the wdsl file with ParkService write below code-
+Code2.2--
+public class ParkLocator {
+    public static String[] country(String country){
+        ParkService.ParksImplPort parks = new ParkService.ParksImplPort();
+        String[] parksname = parks.byCountry(country);
+        return parksname;
+    }
+}
+Code2.3--
+@isTest
+private class ParkLocatorTest{
+    @isTest 
+    static void testParkLocator() {
+        Test.setMock(WebServiceMock.class, new ParkServiceMock());
+        String[] arrayOfParks = ParkLocator.country('India');
+        
+        System.assertEquals('Park1', arrayOfParks[0]);
+    }
+}
+Code2.4--
+@isTest
+global class ParkServiceMock implements WebServiceMock {
+    global void doInvoke(
+           Object stub,
+           Object request,
+           Map<String, Object> response,
+           String endpoint,
+           String soapAction,
+           String requestName,
+           String responseNS,
+           String responseName,
+           String responseType) {
+        ParkService.byCountryResponse response_x = new ParkService.byCountryResponse();
+        List<String> lstOfDummyParks = new List<String> {'Park1','Park2','Park3'};
+        response_x.return_x = lstOfDummyParks;
+        
+        response.put('response_x', response_x);
+    }
+}
+
+Apex REST Service--
+Code3.1--
+@RestResource(urlMapping='/Accounts/*/contacts')
+global with sharing class AccountManager{
+    @HttpGet
+    global static Account getAccount(){
+        RestRequest req = RestContext.request;
+        String accId = req.requestURI.substringBetween('Accounts/', '/contacts');
+        Account acc = [SELECT Id, Name, (SELECT Id, Name FROM Contacts) 
+                       FROM Account WHERE Id = :accId];
+        
+        return acc;
+    }
+}
+Code3.2--
+
+@IsTest
+private class AccountManagerTest{
+    @isTest static void testAccountManager(){
+        Id recordId = getTestAccountId();
+        // Set up a test request
+        RestRequest request = new RestRequest();
+        request.requestUri =
+            'https://ap5.salesforce.com/services/apexrest/Accounts/'+ recordId +'/contacts';
+        request.httpMethod = 'GET';
+        RestContext.request = request;
+        
+        // Call the method to test
+        Account  acc = AccountManager.getAccount();
+        
+        // Verify results
+        System.assert(acc != null);
+    }
+    
+    private static Id getTestAccountId(){
+        Account acc = new Account(Name = 'TestAcc2');
+        Insert acc;
+         
+        Contact con = new Contact(LastName = 'TestCont2', AccountId = acc.Id);
+        Insert con;
+        
+        return acc.Id;
+    }
+}
+Visualforce--1
+Create a simple Visualforce page that displays an image
+Code1.1--
+<apex:page showHeader="false">
+    <apex:pageBlock >
+        <apex:pageBlockSection columns="2">
+        	<apex:pageblocksectionitem >
+            	{! $User.FirstName } {! $User.LastName } 
+           		({! $User.Username })
+        	</apex:pageblocksectionitem>
+        
+    		<apex:pageblocksectionitem >
+                <apex:image url="https://developer.salesforce.com/files/salesforce-developer-network-logo.png"/>
+        	</apex:pageblocksectionitem>
+            
+        </apex:pageBlockSection>
+    </apex:pageBlock>
+</apex:page>
+
+Create a Visualforce page that shows user information
+Code1.2--
+<apex:page >
+    <apex:pageBlock >
+        <apex:pageBlockSection >
+        	{! $User.FirstName }	            
+        </apex:pageBlockSection>
+    </apex:pageBlock>
+</apex:page>
+
+Create a Visualforce page that shows a basic Contact record
+Code1.3--
+<apex:page standardController="Contact">
+    
+    <apex:pageBlock title="Contact Info">
+        <apex:pageBlockSection >
+        	
+            First Name: {! Contact.FirstName } <br/>
+            Last Name: {! Contact.LastName } <br/>
+            Owner Email: {! Contact.Owner.Email } <br/>
+            
+        </apex:pageBlockSection>
+    </apex:pageBlock>
+    
+</apex:page>
+
+Create a Visualforce page that displays a variety of output fields
+Code1.4--
+<apex:page standardController="Opportunity">
+    <apex:pageBlock title="Opportunity Details">
+        <apex:pageBlockSection>
+            <apex:outputField value="{! Opportunity.Name }"/>
+            <apex:outputField value="{! Opportunity.Amount }"/>
+            <apex:outputField value="{! Opportunity.CloseDate }"/>
+            <apex:outputField value="{! Opportunity.Account.Name }"/>
+        </apex:pageBlockSection>
+    </apex:pageBlock>
+</apex:page>
+
+Create a Visualforce form which inserts a basic Contact record
+Code1.5--
+<apex:page standardController="Contact">
+    <apex:form>
+        <apex:pageBlock	title="Add contacts">
+            <apex:pageBlockSection columns="1">
+                <apex:inputField value="{! Contact.FirstName}"/>
+                <apex:inputField value="{! Contact.LastName}"/>
+                <apex:inputField value="{! Contact.email}"/>                
+            </apex:pageBlockSection>
+            
+            <apex:pageBlockButtons>
+                <apex:commandButton action="{! save}" value="Save"/>
+            </apex:pageBlockButtons>            
+        </apex:pageBlock>
+    </apex:form>
+</apex:page>
+
+Create a Visualforce page that shows a list of Accounts linked to their record pages
+Code1.6--
+<apex:page standardController="Account" recordSetVar="Accounts">
+    <apex:pageBlock>
+        <apex:repeat var="a" value="{!Accounts}" rendered="true" id="account_list">
+            <li>
+                <apex:outputLink value="/{!a.ID}">
+                    <apex:outputText value="{!a.Name}"/>                    
+                </apex:outputLink>
+            </li>
+        </apex:repeat>
+    </apex:pageBlock>
+</apex:page>
+
+Use a static resource to display an image on a Visualforce Page
+Code1.7--
+<apex:page >
+    <apex:image url="{ ! URLFOR($Resource.vfimagetest,'cats/kitten1.jpg')}"/>
+</apex:page>
+
+Create a Visualforce page that displays new cases
+Code1.8.1-- Apex CLass
+public class NewCaseListController {
+    public List<Case> getNewCases(){
+        List<Case> filterList = [Select ID, CaseNumber from Case where status ='New'];
+        return filterList;
+    }
+}
+
+Code1.8.2-- Apex(Visualforce) Page
+<apex:page controller="NewCaseListController">
+    <apex:repeat var="case" value="{!newCases}">
+        <apex:outputLink value="/{!case.ID}">
+        <apex:outputText value="{!case.CaseNumber}"></apex:outputText>
+        </apex:outputLink>
+    </apex:repeat>
+</apex:page>
+
+AsynchronousApex: Use Future Methods:--
+Create an Apex class that uses the @future annotation to update Account records.
+Code1.1-- SimpleClass
+public class AccountProcessor {
+    @future
+    public static void countContacts(List<Id> accountIds){
+   
+    	List<Account> accList = [Select Id, Number_Of_Contacts__c, (Select Id from Contacts) from Account where Id in :accountIds];
+        
+        for(Account acc : accList){
+           
+            acc.Number_Of_Contacts__c = acc.Contacts.size();
+         }   
+        
+        update accList; 
+    }
+}
+Code1.2-- Test Class
+@isTest
+public class AccountProcessorTest {
+    public static testmethod void testAccountProcessor(){
+        Account a = new Account();
+        a.Name = 'Test Account';
+        insert a;
+        
+        Contact con = new Contact();
+        con.FirstName = 'Binary';
+        con.LastName = 'Programming';
+        con.AccountId = a.Id;
+        
+        insert con;
+        
+        List<Id> accListId = new List<Id>();
+        accListId.add(a.Id);
+        
+        Test.startTest();
+        AccountProcessor.countContacts(accListId);
+        Test.stopTest();
+        
+        Account acc = [Select Number_Of_Contacts__c from Account where Id =: a.id];
+        System.assertEquals(Integer.valueOf(acc.Number_Of_Contacts__c),1);
+    }
+}
+
+Asynchronous Apex :Use Batch Apex
+Create an Apex class that uses Batch Apex to update Lead records.
+Code1.1-- Simple Class
+global class LeadProcessor implements 
+Database.Batchable<sObject>{
+    
+    // instance member to retain state across transactions
+
+    global Database.QueryLocator start(Database.BatchableContext bc) {
+        return Database.getQueryLocator('SELECT Id FROM Lead');
+    }
+
+    global void execute(Database.BatchableContext bc, List<Lead> scope){
+        // process each batch of records
+        List<Lead> leads = new List<Lead>();
+        for (Lead lead : scope) {
+                lead.LeadSource = 'Dreamforce';
+            	leads.add(lead);    
+        }
+        update leads;
+    }    
+
+    global void finish(Database.BatchableContext bc){        
+    }    
+}
+
+
+Code1.2-- Test Class
+@isTest
+private class LeadProcessorTest {
+ @testSetup 
+    static void setup() {
+        List<Lead> leads = new List<Lead>();
+        // insert 200 leads
+        for (Integer i=0;i<200;i++) {
+            leads.add(new Lead(LastName='Lead '+i, 
+                Company='Lead'));
+        }
+        insert leads;
+    }
+
+    static testmethod void test() {  
+        Test.startTest();
+        LeadProcessor lp = new LeadProcessor();
+        Id batchId = Database.executeBatch(lp);
+        Test.stopTest();
+
+        // after the testing stops, assert records were updated properly
+        System.assertEquals(200, [select count() from lead where LeadSource = 'Dreamforce']);
+    }
+}
+
+Asynchronous Apex : Control Processes with Queueable Apex
+Create a Queueable Apex class that inserts Contacts for Accounts.
+Code1.1-- Simple Class
+
+public class AddPrimaryContact implements Queueable{
+    Contact con;
+    String state;
+    
+    public AddPrimaryContact(Contact con, String state){
+        this.con = con;
+        this.state = state;
+    }
+    public void execute(QueueableContext qc){
+        List<Account> lstOfAccs = [SELECT Id FROM Account WHERE BillingState = :state LIMIT 200];
+        
+        List<Contact> lstOfConts = new List<Contact>();
+        for(Account acc : lstOfAccs){
+            Contact conInst = con.clone(false,false,false,false);
+            conInst.AccountId = acc.Id;
+        
+            lstOfConts.add(conInst);
+        }
+        
+        INSERT lstOfConts;
+    }
+}
+
+Code1.2-- Test Class
+
+
+@isTest
+public class AddPrimaryContactTest{
+    @testSetup
+    static void setup(){
+        List<Account> lstOfAcc = new List<Account>();
+        for(Integer i = 1; i <= 100; i++){
+            if(i <= 50)
+                lstOfAcc.add(new Account(name='AC'+i, BillingState = 'NY'));
+            else
+                lstOfAcc.add(new Account(name='AC'+i, BillingState = 'CA'));
+        }
+        
+        INSERT lstOfAcc;
+    }
+
+    static testmethod void testAddPrimaryContact(){
+        Contact con = new Contact(LastName = 'TestCont');
+        AddPrimaryContact addPCIns = new AddPrimaryContact(CON ,'CA');
+        
+        Test.startTest();
+        System.enqueueJob(addPCIns);
+        Test.stopTest();
+        
+        System.assertEquals(50, [select count() from Contact]);
+    }
+}
+
+
+Asynchronous Apex : Schedule Jobs Using the Apex Scheduler
+Create an Apex class that uses Scheduled Apex to update Lead records.
+
+Code1.1-- Simple Class
+global class DailyLeadProcessor implements Schedulable{
+    global void execute(SchedulableContext ctx){
+        List<Lead> leads = [SELECT Id, LeadSource FROM Lead WHERE LeadSource = ''];
+        
+        if(leads.size() > 0){
+            List<Lead> newLeads = new List<Lead>();
+            
+            for(Lead lead : leads){
+                lead.LeadSource = 'DreamForce';
+                newLeads.add(lead);
+            }
+            
+            update newLeads;
+        }
+    }
+}
+
+Code1.2-- Test Class
+
+@isTest
+private class DailyLeadProcessorTest{
+    //Seconds Minutes Hours Day_of_month Month Day_of_week optional_year
+    public static String CRON_EXP = '0 0 0 2 6 ? 2022';
+    
+    static testmethod void testScheduledJob(){
+        List<Lead> leads = new List<Lead>();
+        
+        for(Integer i = 0; i < 200; i++){
+            Lead lead = new Lead(LastName = 'Test ' + i, LeadSource = '', Company = 'Test Company ' + i, Status = 'Open - Not Contacted');
+            leads.add(lead);
+        }
+        
+        insert leads;
+        
+        Test.startTest();
+        // Schedule the test job
+        String jobId = System.schedule('Update LeadSource to DreamForce', CRON_EXP, new DailyLeadProcessor());
+        
+        // Stopping the test will run the job synchronously
+        Test.stopTest();
+    }
+}
+
+
+Set Up Development Org :-
+Create a new Trailhead Playground for this superbadge.
+Install this unlocked package (package ID: 04t6g000008av9iAAA).
+Add picklist values Repair and Routine Maintenance to the Type field on the Case object.
+Update the Case page layout assignment to use the Case (HowWeRoll) Layout for your profile.
+Rename the tab/label for the Case tab to Maintenance Request.
+Update the Product page layout assignment to use the Product (HowWeRoll) Layout for your profile.
+Rename the tab/label for the Product object to Equipment.
+Click on App Launcher and search Create Default Data then Click Create Data to generate sample data for the application.
+
+ APEX SPECIALIST SUPERBADGE CHALLENGE 1-Automate record creation
+
+Go to the App Launcher -> Search How We Roll Maintenance -> click on Maintenance Requests -> click on first case -> click Details -> change the type Repair to Routine Maintenance -> select Origin = Phone -> Vehicle = select Teardrop Camper , save it.
+Feed -> Close Case = save it..
+Go to the Object Manager -> Maintenance Request ->Field & Relationships ->New ->Lookup Relationship -> next -> select Equipment ->next -> Field Label = Equipment ->next->next->next -> save it .
+Now go to the developer console use below code  
+
+
+
+MaintenanceRequestHelper.apxc :-
+public with sharing class MaintenanceRequestHelper {
+    public static void updateworkOrders(List<Case> updWorkOrders, Map<Id,Case> nonUpdCaseMap) {
+        Set<Id> validIds = new Set<Id>();
+        
+        
+        For (Case c : updWorkOrders){
+            if (nonUpdCaseMap.get(c.Id).Status != 'Closed' && c.Status == 'Closed'){
+                if (c.Type == 'Repair' || c.Type == 'Routine Maintenance'){
+                    validIds.add(c.Id);
+                    
+             
+                }
+            }
+        }
+        
+        if (!validIds.isEmpty()){
+            List<Case> newCases = new List<Case>();
+            Map<Id,Case> closedCasesM = new Map<Id,Case>([SELECT Id, Vehicle__c, Equipment__c, Equipment__r.Maintenance_Cycle__c,(SELECT Id,Equipment__c,Quantity__c FROM Equipment_Maintenance_Items__r) 
+                                                         FROM Case WHERE Id IN :validIds]);
+            Map<Id,Decimal> maintenanceCycles = new Map<ID,Decimal>();
+            AggregateResult[] results = [SELECT Maintenance_Request__c, MIN(Equipment__r.Maintenance_Cycle__c)cycle FROM Equipment_Maintenance_Item__c WHERE Maintenance_Request__c IN :ValidIds GROUP BY Maintenance_Request__c];
+        
+        for (AggregateResult ar : results){ 
+            maintenanceCycles.put((Id) ar.get('Maintenance_Request__c'), (Decimal) ar.get('cycle'));
+        }
+            
+            for(Case cc : closedCasesM.values()){
+                Case nc = new Case (
+                    ParentId = cc.Id,
+                Status = 'New',
+                    Subject = 'Routine Maintenance',
+                    Type = 'Routine Maintenance',
+                    Vehicle__c = cc.Vehicle__c,
+                    Equipment__c =cc.Equipment__c,
+                    Origin = 'Web',
+                    Date_Reported__c = Date.Today()
+                    
+                );
+                
+                If (maintenanceCycles.containskey(cc.Id)){
+                    nc.Date_Due__c = Date.today().addDays((Integer) maintenanceCycles.get(cc.Id));
+                } else {
+                    nc.Date_Due__c = Date.today().addDays((Integer) cc.Equipment__r.maintenance_Cycle__c);
+                }
+                
+                newCases.add(nc);
+            }
+            
+           insert newCases;
+            
+           List<Equipment_Maintenance_Item__c> clonedWPs = new List<Equipment_Maintenance_Item__c>();
+           for (Case nc : newCases){
+                for (Equipment_Maintenance_Item__c wp : closedCasesM.get(nc.ParentId).Equipment_Maintenance_Items__r){
+                    Equipment_Maintenance_Item__c wpClone = wp.clone();
+                    wpClone.Maintenance_Request__c = nc.Id;
+                    ClonedWPs.add(wpClone);
+                    
+                }
+            }
+            insert ClonedWPs;
+        }
+    }
+}
+
+
+
+MaitenanceRequest.apxt :-
+ trigger MaintenanceRequest on Case (before update, after update) {
+
+    if(Trigger.isUpdate && Trigger.isAfter){
+
+        MaintenanceRequestHelper.updateWorkOrders(Trigger.New, Trigger.OldMap);
+
+    }
+
+}
+
+
+
+After saving the code go back the How We Roll Maintenance , 
+click on Maintenance Requests -> click on 2nd case -> click Details -> change the type Repair to Routine Maintenance -> select Origin = Phone -> Vehicle = select Teardrop Camper , save it.
+Feed -> Close Case = save it.
+
+
+APEX SPECIALIST SUPERBADGE CHALLENGE 2- Synchronize Salesforce data with an external system
+
+Implement an Apex class (called WarehouseCalloutService) that implements the queueable interface and makes a callout to the external service used for warehouse inventory management. This service receives updated values in the external system and updates the related records in Salesforce. Before checking this section, enqueue the job at least once to confirm that it's working as expected.
+
+Setup -> Search in quick find box -> click Remote Site Settings -> Name = Warehouse  URL , Remote Site URL = https://th-superbadge-apex.herokuapp.com , make sure active is selected.
+Go to the developer console use below code 
+
+    
+WarehouseCalloutService.apxc :-
+
+public with sharing class WarehouseCalloutService implements Queueable {
+    private static final String WAREHOUSE_URL = 'https://th-superbadge-apex.herokuapp.com/equipment';
+    
+    //class that makes a REST callout to an external warehouse system to get a list of equipment that needs to be updated.
+    //The callout’s JSON response returns the equipment records that you upsert in Salesforce. 
+    
+    @future(callout=true)
+    public static void runWarehouseEquipmentSync(){
+        Http http = new Http();
+        HttpRequest request = new HttpRequest();
+        
+        request.setEndpoint(WAREHOUSE_URL);
+        request.setMethod('GET');
+        HttpResponse response = http.send(request);
+        
+        List<Product2> warehouseEq = new List<Product2>();
+        
+        if (response.getStatusCode() == 200){
+            List<Object> jsonResponse = (List<Object>)JSON.deserializeUntyped(response.getBody());
+            System.debug(response.getBody());
+            
+            //class maps the following fields: replacement part (always true), cost, current inventory, lifespan, maintenance cycle, and warehouse SKU
+            //warehouse SKU will be external ID for identifying which equipment records to update within Salesforce
+            for (Object eq : jsonResponse){
+                Map<String,Object> mapJson = (Map<String,Object>)eq;
+                Product2 myEq = new Product2();
+                myEq.Replacement_Part__c = (Boolean) mapJson.get('replacement');
+                myEq.Name = (String) mapJson.get('name');
+                myEq.Maintenance_Cycle__c = (Integer) mapJson.get('maintenanceperiod');
+                myEq.Lifespan_Months__c = (Integer) mapJson.get('lifespan');
+                myEq.Cost__c = (Integer) mapJson.get('cost');
+                myEq.Warehouse_SKU__c = (String) mapJson.get('sku');
+                myEq.Current_Inventory__c = (Double) mapJson.get('quantity');
+                myEq.ProductCode = (String) mapJson.get('_id');
+                warehouseEq.add(myEq);
+            }
+            
+            if (warehouseEq.size() > 0){
+                upsert warehouseEq;
+                System.debug('Your equipment was synced with the warehouse one');
+            }
+        }
+    }
+    
+    public static void execute (QueueableContext context){
+        runWarehouseEquipmentSync();
+    }
+    
+}
+
+
+After saving the code open execute anonymous window ( CTRl+E ) and run this method ,
+System.enqueueJob(new WarehouseCalloutService());
+Now check Challenge.
+
+APEX SPECIALIST SUPERBADGE-SOLUTIONS -CHALLENGE 3-Schedule synchronization
+
+Build scheduling logic that executes your callout and runs your code daily. The name of the schedulable class should be WarehouseSyncSchedule, and the scheduled job should be named WarehouseSyncScheduleJob.
+
+Go to the developer console use below code :
+WarehouseSyncShedule.apxc :-
+
+global with sharing class WarehouseSyncSchedule implements Schedulable{
+    global void execute(SchedulableContext ctx){
+        System.enqueueJob(new WarehouseCalloutService());
+    }
+}
+
+
+
+Save it , after that Go to setup -> Seacrh in Quick find box -> Apex Classes -> 
+click Schedule Apex and Jb Name = WarehouseSyncScheduleJob , Apex Class = WarehouseSyncSchedule as --
+Job name -- WarehouseSyncScheduleJob
+Apex Class-- WarehouseSyncSchedule (from quick find)
+Select all days, 1 month given by default and timing 1 hour before you do. Now check the challenge.
+
+APEX SPECIALIST SUPERBADGE-SOLUTIONS -CHALLENGE 4-Test automation logic
+
+Build tests for all cases (positive, negative, and bulk) specified in the business requirements by using a class named MaintenanceRequestHelperTest. You must have 100% test coverage to pass this section and assert values to prove that your logic is working as expected. Choose Run All Tests in the Developer Console at least once before attempting to submit this section. Be patient as it may take 10-20 seconds to process the challenge check.
+
+
+Go to the developer console use below code :
+
+
+MaintenanceRequestHelperTest.apxc :-
+
+@isTest
+public with sharing class MaintenanceRequestHelperTest {
+    // implement scheduled code here
+    private static final string STATUS_NEW = 'New';
+    private static final string WORKING = 'Working';
+    private static final string CLOSED = 'Closed';
+    private static final string REPAIR = 'Repair';
+    private static final string REQUEST_ORIGIN = 'Web';
+    private static final string REQUEST_TYPE = 'Routine Maintenance';
+    private static final string REQUEST_SUBJECT = 'Testing subject';
+    
+    PRIVATE STATIC Vehicle__c createVehicle(){
+        Vehicle__c Vehicle = new Vehicle__C(name = 'SuperTruck');
+        return Vehicle;
+    }
+    
+    PRIVATE STATIC Product2 createEq(){
+        product2 equipment = new product2(name = 'SuperEquipment',
+                                         lifespan_months__C = 10,
+                                         maintenance_cycle__C = 10,
+                                         replacement_part__c = true);
+        return equipment;
+    }
+    
+    PRIVATE STATIC Case createMaintenanceRequest(id vehicleId, id equipmentId){
+        case cs = new case(Type=REPAIR,
+                          Status=STATUS_NEW,
+                          Origin=REQUEST_ORIGIN,
+                          Subject=REQUEST_SUBJECT,
+                          Equipment__c=equipmentId,
+                          Vehicle__c=vehicleId);
+        return cs;
+    }
+    
+    PRIVATE STATIC Equipment_Maintenance_Item__c createWorkPart(id equipmentId,id requestId){
+        Equipment_Maintenance_Item__c wp = new Equipment_Maintenance_Item__c(Equipment__c = equipmentId,
+                                                                            Maintenance_Request__c = requestId);
+        return wp;
+    }
+    
+    
+    @isTest
+    private static void testMaintenanceRequestPositive(){
+        Vehicle__c vehicle = createVehicle();
+        insert vehicle;
+        id vehicleId = vehicle.Id;
+        
+        Product2 equipment = createEq();
+        insert equipment;
+        id equipmentId = equipment.Id;
+        
+        case somethingToUpdate = createMaintenanceRequest(vehicleId,equipmentId);
+        insert somethingToUpdate;
+        
+        Equipment_Maintenance_Item__c workP = createWorkPart(equipmentId,somethingToUpdate.id);
+        insert workP;
+        
+        test.startTest();
+        somethingToUpdate.status = CLOSED;
+        update somethingToUpdate;
+        test.stopTest();
+        
+        Case newReq = [Select id, subject, type, Equipment__c, Date_Reported__c, Vehicle__c, Date_Due__c
+                      from case
+                      where status =:STATUS_NEW];
+        
+        Equipment_Maintenance_Item__c workPart = [select id
+                                                 from Equipment_Maintenance_Item__c
+                                                 where Maintenance_Request__c =:newReq.Id];
+        
+        system.assert(workPart != null);
+        system.assert(newReq.Subject != null);
+        system.assertEquals(newReq.Type, REQUEST_TYPE);
+        SYSTEM.assertEquals(newReq.Equipment__c, equipmentId);
+        SYSTEM.assertEquals(newReq.Vehicle__c, vehicleId);
+        SYSTEM.assertEquals(newReq.Date_Reported__c, system.today());
+    }
+    
+    @isTest
+    private static void testMaintenanceRequestNegative(){
+        Vehicle__C vehicle = createVehicle();
+        insert vehicle;
+        id vehicleId = vehicle.Id;
+        
+        product2 equipment = createEq();
+        insert equipment;
+        id equipmentId = equipment.Id;
+        
+        case emptyReq = createMaintenanceRequest(vehicleId,equipmentId);
+        insert emptyReq;
+        
+        Equipment_Maintenance_Item__c workP = createWorkPart(equipmentId, emptyReq.Id);
+        insert workP;
+        
+        test.startTest();
+        emptyReq.Status = WORKING;
+        update emptyReq;
+        test.stopTest();
+        
+        list<case> allRequest = [select id 
+                                 from case];
+        
+        Equipment_Maintenance_Item__c workPart = [select id 
+                                                  from Equipment_Maintenance_Item__c 
+                                                  where Maintenance_Request__c = :emptyReq.Id];
+        
+        system.assert(workPart != null);
+        system.assert(allRequest.size() == 1);
+    }
+    
+    @isTest
+    private static void testMaintenanceRequestBulk(){
+        list<Vehicle__C> vehicleList = new list<Vehicle__C>();
+        list<Product2> equipmentList = new list<Product2>();
+        list<Equipment_Maintenance_Item__c> workPartList = new list<Equipment_Maintenance_Item__c>();
+        list<case> requestList = new list<case>();
+        list<id> oldRequestIds = new list<id>();
+        
+        for(integer i = 0; i < 300; i++){
+           vehicleList.add(createVehicle());
+            equipmentList.add(createEq());
+        }
+        insert vehicleList;
+        insert equipmentList;
+        
+        for(integer i = 0; i < 300; i++){
+            requestList.add(createMaintenanceRequest(vehicleList.get(i).id, equipmentList.get(i).id));
+        }
+        insert requestList;
+        
+        for(integer i = 0; i < 300; i++){
+            workPartList.add(createWorkPart(equipmentList.get(i).id, requestList.get(i).id));
+        }
+        insert workPartList;
+        
+        test.startTest();
+        for(case req : requestList){
+            req.Status = CLOSED;
+            oldRequestIds.add(req.Id);
+        }
+        update requestList;
+        test.stopTest();
+        
+        list<case> allRequests = [select id
+                                 from case
+                                 where status =: STATUS_NEW];
+        
+        list<Equipment_Maintenance_Item__c> workParts = [select id
+                                                        from Equipment_Maintenance_Item__c
+                                                        where Maintenance_Request__c in: oldRequestIds];
+        
+        system.assert(allRequests.size() == 300);
+    }
+}
+
+MaintenanceRequestHelper.apxc :-
+
+public with sharing class MaintenanceRequestHelper {
+    
+    public static void updateWorkOrders(List<Case> updWorkOrders, Map<Id,Case> nonUpdCaseMap) {
+        // TODO: Complete the method to update workorders
+                Set<Id> validIds = new Set<Id>();
+        
+        
+        For (Case c : updWorkOrders){
+            if (nonUpdCaseMap.get(c.Id).Status != 'Closed' && c.Status == 'Closed'){
+                if (c.Type == 'Repair' || c.Type == 'Routine Maintenance'){
+                    validIds.add(c.Id);
+                }
+            }
+        }
+                if (!validIds.isEmpty()){
+            List<Case> newCases = new List<Case>();
+            Map<Id,Case> closedCasesM = new Map<Id,Case>([SELECT Id, Vehicle__c, Equipment__c, Equipment__r.Maintenance_Cycle__c,(SELECT Id,Equipment__c,Quantity__c FROM Equipment_Maintenance_Items__r) 
+                                                         FROM Case WHERE Id IN :validIds]);
+            Map<Id,Decimal> maintenanceCycles = new Map<ID,Decimal>();
+            AggregateResult[] results = [SELECT Maintenance_Request__c, MIN(Equipment__r.Maintenance_Cycle__c)cycle FROM Equipment_Maintenance_Item__c WHERE Maintenance_Request__c IN :ValidIds GROUP BY Maintenance_Request__c];
+        
+        for (AggregateResult ar : results){ 
+            maintenanceCycles.put((Id) ar.get('Maintenance_Request__c'), (Decimal) ar.get('cycle'));
+        }
+            
+            for(Case cc : closedCasesM.values()){
+                Case nc = new Case (
+                    ParentId = cc.Id,
+                Status = 'New',
+                    Subject = 'Routine Maintenance',
+                    Type = 'Routine Maintenance',
+                    Vehicle__c = cc.Vehicle__c,
+                    Equipment__c =cc.Equipment__c,
+                    Origin = 'Web',
+                    Date_Reported__c = Date.Today()
+                    
+                );
+                
+                If (maintenanceCycles.containskey(cc.Id)){
+                    nc.Date_Due__c = Date.today().addDays((Integer) maintenanceCycles.get(cc.Id));
+                } 
+		//comment line start
+		//else { 
+                // nc.Date_Due__c = Date.today().addDays((Integer) cc.Equipment__r.maintenance_Cycle__c);
+                //}
+		//comment line end
+                
+                newCases.add(nc);
+            }
+            
+           insert newCases;
+            
+           List<Equipment_Maintenance_Item__c> clonedWPs = new List<Equipment_Maintenance_Item__c>();
+           for (Case nc : newCases){
+                for (Equipment_Maintenance_Item__c wp : closedCasesM.get(nc.ParentId).Equipment_Maintenance_Items__r){
+                    Equipment_Maintenance_Item__c wpClone = wp.clone();
+                    wpClone.Maintenance_Request__c = nc.Id;
+                    ClonedWPs.add(wpClone);
+                    
+                }
+            }
+            insert ClonedWPs;
+        }
+    }
+}
+
+MaintenanceRequest.apxt :-
+
+trigger MaintenanceRequest on Case (before update, after update) {
+    // ToDo: Call MaintenanceRequestHelper.updateWorkOrders
+     if(Trigger.isUpdate && Trigger.isAfter){
+
+        MaintenanceRequestHelper.updateWorkOrders(Trigger.New, Trigger.OldMap);
+
+    }
+}
+
+run all and check challenge.
+
+
+APEX SPECIALIST SUPERBADGE-SOLUTIONS -CHALLENGE 5-Test callout logic
+
+Build tests for your callout using the included class for the callout mock (WarehouseCalloutServiceMock) and callout test class (WarehouseCalloutServiceTest) in the package. You must have 100% test coverage to pass this challenge and assert values to prove that your logic is working as expected.
+
+
+Go to the developer console use below code ,
+WarehouseCalloutService.apxc :-
+
+public with sharing class WarehouseCalloutService {
+
+    private static final String WAREHOUSE_URL = 'https://th-superbadge-apex.herokuapp.com/equipment';
+        //class that makes a REST callout to an external warehouse system to get a list of equipment that needs to be updated.
+    //The callout’s JSON response returns the equipment records that you upsert in Salesforce. 
+    
+    @future(callout=true)
+    public static void runWarehouseEquipmentSync(){
+        Http http = new Http();
+        HttpRequest request = new HttpRequest();
+        
+        request.setEndpoint(WAREHOUSE_URL);
+        request.setMethod('GET');
+        HttpResponse response = http.send(request);
+        
+        List<Product2> warehouseEq = new List<Product2>();
+        
+        if (response.getStatusCode() == 200){
+            List<Object> jsonResponse = (List<Object>)JSON.deserializeUntyped(response.getBody());
+            System.debug(response.getBody());
+            
+            //class maps the following fields: replacement part (always true), cost, current inventory, lifespan, maintenance cycle, and warehouse SKU
+            //warehouse SKU will be external ID for identifying which equipment records to update within Salesforce
+            for (Object eq : jsonResponse){
+                Map<String,Object> mapJson = (Map<String,Object>)eq;
+                Product2 myEq = new Product2();
+                myEq.Replacement_Part__c = (Boolean) mapJson.get('replacement');
+                myEq.Name = (String) mapJson.get('name');
+                myEq.Maintenance_Cycle__c = (Integer) mapJson.get('maintenanceperiod');
+                myEq.Lifespan_Months__c = (Integer) mapJson.get('lifespan');
+                myEq.Cost__c = (Integer) mapJson.get('cost');
+                myEq.Warehouse_SKU__c = (String) mapJson.get('sku');
+                myEq.Current_Inventory__c = (Double) mapJson.get('quantity');
+                myEq.ProductCode = (String) mapJson.get('_id');
+                warehouseEq.add(myEq);
+            }
+            
+            if (warehouseEq.size() > 0){
+                upsert warehouseEq;
+                System.debug('Your equipment was synced with the warehouse one');
+                System.debug(warehouseEq);
+            }
+        }
+    }    
+}
+
+
+WarehouseCalloutServiceTest.apxc :-
+
+
+@isTest
+
+private class WarehouseCalloutServiceTest {   
+    @isTest  
+    static void testWareHouseCallout(){
+        Test.startTest();
+        // implement mock callout test here
+        Test.setMock(HTTPCalloutMock.class, new WarehouseCalloutServiceMock());
+        WarehouseCalloutService.runWarehouseEquipmentSync();
+        Test.stopTest();
+        System.assertEquals(1, [SELECT count() FROM Product2]);
+    }     
+}
+
+
+WarehouseCalloutServiceMock.apxc :-
+
+
+@isTest
+global class WarehouseCalloutServiceMock implements HttpCalloutMock {
+    // implement http mock callout
+    global static HttpResponse respond(HttpRequest request){
+        
+        System.assertEquals('https://th-superbadge-apex.herokuapp.com/equipment', request.getEndpoint());
+        System.assertEquals('GET', request.getMethod());
+        
+        // Create a fake response
+        HttpResponse response = new HttpResponse();
+        response.setHeader('Content-Type', 'application/json');
+        response.setBody('[{"_id":"55d66226726b611100aaf741","replacement":false,"quantity":5,"name":"Generator 1000 kW","maintenanceperiod":365,"lifespan":120,"cost":5000,"sku":"100003"}]');
+        response.setStatusCode(200);
+        return response;
+    }
+}
+
+
+
+Note-:Deleted all scheduled jobs that are under Setup -> Monitoring -> Scheduled Jobs
+
+run all and check challenge.
+
+APEX SPECIALIST SUPERBADGE-SOLUTIONS -CHALLENGE 6-Test scheduling logic
+
+Build unit tests for the class WarehouseSyncSchedule in a class named WarehouseSyncScheduleTest. You must have 100% test coverage to pass this challenge and assert values to prove that your logic is working as expected.
+
+
+Go to the developer console use below code ,
+WarehouseSyncSchedule.apxc :-
+
+global with sharing class WarehouseSyncSchedule implements Schedulable {
+    // implement scheduled code here
+    global void execute(SchedulableContext ctx){
+        System.enqueueJob(new WarehouseCalloutService());
+    }
+}      
+
+WarehouseSyncScheduleTest.apxc :-
+
+@isTest
+public class WarehouseSyncScheduleTest {
+   // implement scheduled code here
+   @isTest 
+   static void WarehousescheduleTest(){
+        String scheduleTime = '00 00 01 * * ?';
+        Test.startTest();
+        Test.setMock(HttpCalloutMock.class, new WarehouseCalloutServiceMock());
+        String jobID=System.schedule('Warehouse Time To Schedule to Test', scheduleTime, new WarehouseSyncSchedule());
+        Test.stopTest();
+        //Contains schedule information for a scheduled job. CronTrigger is similar to a cron job on UNIX systems.
+        // This object is available in API version 17.0 and later.
+        CronTrigger a=[SELECT Id FROM CronTrigger where NextFireTime > today];
+        System.assertEquals(jobID, a.Id,'Schedule ');
+    }
+}
+
+run all and check challenge.
+
